@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Preview Certificates{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+    <div>
+        <h1 class="section-title">Certificate Preview</h1>
+        <p class="section-subtitle mb-0">Preview certificates for the first 5 students</p>
+    </div>
+    <a href="/generate" class="btn btn-primary">
+        Generate All <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+</div>
+
+{% if not has_template %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    No certificate template uploaded. <a href="/template" class="alert-link">Upload a template first.</a>
+</div>
+{% elif not has_students %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    No students loaded. <a href="/upload" class="alert-link">Upload student data first.</a>
+</div>
+{% elif not has_positions %}
+<div class="alert alert-warning">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    Editor settings not saved. <a href="/editor" class="alert-link">Configure the editor first.</a>
+</div>
+{% else %}
+
+<div class="row g-4">
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0 fw-semibold">Students</h6>
+            </div>
+            <div class="list-group list-group-flush rounded-bottom-3" id="studentList">
+                {% for student in students %}
+                <button class="list-group-item list-group-item-action student-btn"
+                        data-id="{{ student.id }}"
+                        onclick="loadPreview({{ student.id }}, this)"
+                        style="background: var(--bg-card); border-color: var(--border-color); color: var(--text-primary);">
+                    <div class="fw-semibold" style="font-size:0.9rem;">{{ student.name }}</div>
+                    <div class="text-secondary" style="font-size:0.8rem;">{{ student.roll }} · {{ student.college[:20] }}{% if student.college|length > 20 %}…{% endif %}</div>
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h6 class="mb-0 fw-semibold" id="previewTitle">Select a student to preview</h6>
+                <div id="navButtons" class="d-none d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="navigatePreview(-1)">
+                        <i class="bi bi-chevron-left"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="navigatePreview(1)">
+                        <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-4" id="previewBody" style="min-height: 400px;">
+                <div class="text-center text-secondary py-5">
+                    <i class="bi bi-eye" style="font-size:3rem; opacity:0.3;"></i>
+                    <p class="mt-3 mb-0">Click a student on the left to generate their certificate preview</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const students = {{ students | tojson }};
+let currentIndex = 0;
+let loaded = {};
+
+function loadPreview(studentId, btn) {
+    currentIndex = students.findIndex(s => s.id === studentId);
+
+    document.querySelectorAll('.student-btn').forEach(b => {
+        b.style.background = 'var(--bg-card)';
+        b.style.borderColor = 'var(--border-color)';
+        b.style.color = 'var(--text-primary)';
+    });
+    if (btn) {
+        btn.style.background = 'rgba(108,99,255,0.15)';
+        btn.style.borderColor = 'var(--accent)';
+        btn.style.color = 'var(--accent-light)';
+    }
+
+    const body = document.getElementById('previewBody');
+    const title = document.getElementById('previewTitle');
+
+    if (loaded[studentId]) {
+        body.innerHTML = `<img src="data:image/png;base64,${loaded[studentId].img}" class="preview-cert-img" alt="Certificate">`;
+        title.textContent = `Preview: ${loaded[studentId].name}`;
+        document.getElementById('navButtons').classList.remove('d-none');
+        return;
+    }
+
+    body.innerHTML = `<div class="d-flex align-items-center justify-content-center py-5">
+        <div class="text-center">
+            <div class="spinner-border text-accent mb-3"></div>
+            <p class="text-secondary">Generating preview…</p>
+        </div>
+    </div>`;
+    title.textContent = 'Generating…';
+
+    fetch(`/_/preview-certificate/${studentId}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                body.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                return;
+            }
+            loaded[studentId] = { img: data.preview, name: data.name };
+            body.innerHTML = `<img src="data:image/png;base64,${data.preview}" class="preview-cert-img" alt="Certificate">`;
+            title.textContent = `Preview: ${data.name}`;
+            document.getElementById('navButtons').classList.remove('d-none');
+        })
+        .catch(e => {
+            body.innerHTML = `<div class="alert alert-danger">Error: ${e.message}</div>`;
+        });
+}
+
+function navigatePreview(dir) {
+    const newIndex = currentIndex + dir;
+    if (newIndex < 0 || newIndex >= students.length) return;
+    const s = students[newIndex];
+    const btn = document.querySelector(`[data-id="${s.id}"]`);
+    loadPreview(s.id, btn);
+}
+
+if (students.length > 0) {
+    setTimeout(() => {
+        const firstBtn = document.querySelector('.student-btn');
+        if (firstBtn) loadPreview(students[0].id, firstBtn);
+    }, 100);
+}
+</script>
+{% endblock %}

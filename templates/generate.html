@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Generate Certificates{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="section-title">Generate All Certificates</h1>
+    <p class="section-subtitle">Generate individual PDFs for all {{ total }} students</p>
+</div>
+
+<div class="row g-4 justify-content-center">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body p-4">
+                <div class="text-center mb-4">
+                    <div class="stat-icon mx-auto mb-3" style="width:64px; height:64px; background: rgba(108,99,255,0.15); font-size:1.75rem;">
+                        <i class="bi bi-filetype-pdf" style="color: var(--accent);"></i>
+                    </div>
+                    <h5 class="fw-bold">Ready to generate</h5>
+                    <p class="text-secondary mb-0">
+                        <strong class="text-primary">{{ total }}</strong> certificates will be created and saved to the <code>generated/</code> folder.
+                    </p>
+                </div>
+
+                <div id="preGenState">
+                    <div class="d-flex align-items-center gap-3 p-3 rounded-3 mb-3" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                        <i class="bi bi-info-circle text-info"></i>
+                        <div style="font-size:0.85rem;">
+                            Files will be named <code>Certificate_&lt;StudentName&gt;.pdf</code>.
+                            Existing files will be overwritten.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary w-100" id="generateBtn" onclick="startGeneration()" {% if total == 0 %}disabled{% endif %}>
+                        <i class="bi bi-play-fill me-1"></i>Generate {{ total }} Certificates
+                    </button>
+                </div>
+
+                <div id="progressState" class="d-none">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-2">
+                            <span class="fw-semibold">Generating…</span>
+                            <span id="progressCount" class="text-secondary" style="font-size:0.85rem;"></span>
+                        </div>
+                        <div class="progress-bar-custom">
+                            <div class="progress-bar-fill" id="progressFill" style="width:0%;"></div>
+                        </div>
+                    </div>
+                    <div class="text-center text-secondary" style="font-size:0.85rem;">
+                        <div class="spinner-border spinner-border-sm me-2"></div>
+                        Processing… please wait
+                    </div>
+                </div>
+
+                <div id="doneState" class="d-none">
+                    <div class="alert alert-success d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-check-circle-fill fs-5"></i>
+                        <div>
+                            <div class="fw-semibold">All certificates generated!</div>
+                            <div style="font-size:0.85rem;">Saved to the <code>generated/</code> folder.</div>
+                        </div>
+                    </div>
+                    <a href="/email-settings" class="btn btn-primary w-100">
+                        Next: Configure Email <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let evtSource = null;
+
+function startGeneration() {
+    document.getElementById('preGenState').classList.add('d-none');
+    document.getElementById('progressState').classList.remove('d-none');
+
+    fetch('/_/generate-all', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('progressState').classList.add('d-none');
+                document.getElementById('preGenState').classList.remove('d-none');
+                alert('Error: ' + data.error);
+                return;
+            }
+            listenProgress();
+        });
+}
+
+function listenProgress() {
+    evtSource = new EventSource('/_/generate-progress');
+    evtSource.onmessage = (e) => {
+        const p = JSON.parse(e.data);
+        const pct = p.total > 0 ? Math.round((p.done_count / p.total) * 100) : 0;
+        document.getElementById('progressFill').style.width = pct + '%';
+        document.getElementById('progressCount').textContent = `${p.done_count} / ${p.total}`;
+        if (p.done) {
+            evtSource.close();
+            document.getElementById('progressState').classList.add('d-none');
+            document.getElementById('doneState').classList.remove('d-none');
+        }
+    };
+    evtSource.onerror = () => {
+        evtSource.close();
+        setTimeout(checkProgress, 1000);
+    };
+}
+
+function checkProgress() {
+    fetch('/_/stats').then(r=>r.json()).then(d => {
+        if (d.generated > 0) {
+            document.getElementById('progressState').classList.add('d-none');
+            document.getElementById('doneState').classList.remove('d-none');
+        }
+    });
+}
+</script>
+{% endblock %}

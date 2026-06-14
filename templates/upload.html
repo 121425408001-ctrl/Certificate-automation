@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Upload Data{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="section-title">Upload Student Data</h1>
+    <p class="section-subtitle">Upload your Excel or CSV file and map the columns</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <span class="badge-step">1</span>
+                <h6 class="mb-0 fw-semibold">Upload Excel / CSV File</h6>
+            </div>
+            <div class="card-body p-4">
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                    <i class="bi bi-file-earmark-spreadsheet"></i>
+                    <h6 class="mb-1 mt-2">Drop your file here or click to browse</h6>
+                    <p class="text-secondary mb-0" style="font-size:0.85rem;">Supports .xlsx, .xls, .csv</p>
+                </div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="d-none">
+                <div id="uploadStatus" class="mt-3 d-none">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="spinner-border spinner-border-sm text-accent" role="status"></div>
+                        <span class="text-secondary" style="font-size:0.9rem;">Reading file…</span>
+                    </div>
+                </div>
+                <div id="fileInfo" class="mt-3 d-none">
+                    <div class="alert alert-success d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-check-circle-fill"></i>
+                        <span id="fileInfoText"></span>
+                    </div>
+                </div>
+                <div id="uploadError" class="mt-3 d-none">
+                    <div class="alert alert-danger mb-0" id="uploadErrorText"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card" id="mappingCard" style="display:none!important;">
+            <div class="card-header d-flex align-items-center gap-2">
+                <span class="badge-step">2</span>
+                <h6 class="mb-0 fw-semibold">Map Columns</h6>
+            </div>
+            <div class="card-body p-4">
+                <p class="text-secondary mb-3" style="font-size:0.85rem;">
+                    Detected <strong id="totalRows" class="text-primary"></strong> rows. 
+                    Assign each field to the correct column from your file.
+                </p>
+                <div class="mb-3">
+                    <label class="form-label">Name Column <span class="text-danger">*</span></label>
+                    <select class="form-select" id="mapName"></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Roll Number Column <span class="text-danger">*</span></label>
+                    <select class="form-select" id="mapRoll"></select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">College Name Column <span class="text-danger">*</span></label>
+                    <select class="form-select" id="mapCollege"></select>
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Email Column <span class="text-danger">*</span></label>
+                    <select class="form-select" id="mapEmail"></select>
+                </div>
+                <button class="btn btn-primary w-100" onclick="saveMapping()">
+                    <i class="bi bi-check-lg me-1"></i>Confirm Mapping & Load Students
+                </button>
+                <div id="mappingResult" class="mt-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4 d-none" id="previewSection">
+    <div class="col">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h6 class="mb-0 fw-semibold">Data Preview (first 3 rows)</h6>
+                <div id="detectedCols" class="d-flex flex-wrap gap-1"></div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" id="previewTable"></table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="successBanner" class="mt-4 d-none">
+    <div class="alert alert-success d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-2">
+            <i class="bi bi-check-circle-fill fs-5"></i>
+            <span id="successText" class="fw-semibold"></span>
+        </div>
+        <a href="/template" class="btn btn-success btn-sm">
+            Next: Upload Template <i class="bi bi-arrow-right ms-1"></i>
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let detectedColumns = [];
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+    document.getElementById('uploadStatus').classList.remove('d-none');
+    document.getElementById('fileInfo').classList.add('d-none');
+    document.getElementById('uploadError').classList.add('d-none');
+    document.getElementById('mappingCard').style.removeProperty('display');
+    document.getElementById('mappingCard').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    fetch('/_/upload-excel', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('uploadStatus').classList.add('d-none');
+            if (data.error) {
+                showUploadError(data.error);
+                return;
+            }
+            detectedColumns = data.columns;
+            dropZone.classList.add('has-file');
+            document.getElementById('fileInfoText').textContent = `✓ ${file.name} — ${data.total_rows} rows, ${data.columns.length} columns detected`;
+            document.getElementById('fileInfo').classList.remove('d-none');
+            document.getElementById('totalRows').textContent = data.total_rows;
+            populateMappingDropdowns(data.columns);
+            document.getElementById('mappingCard').style.display = '';
+            showPreviewTable(data.columns, data.sample);
+        })
+        .catch(e => {
+            document.getElementById('uploadStatus').classList.add('d-none');
+            showUploadError('Network error: ' + e.message);
+        });
+}
+
+function showUploadError(msg) {
+    const el = document.getElementById('uploadError');
+    document.getElementById('uploadErrorText').textContent = msg;
+    el.classList.remove('d-none');
+}
+
+function populateMappingDropdowns(columns) {
+    ['mapName', 'mapRoll', 'mapCollege', 'mapEmail'].forEach(id => {
+        const sel = document.getElementById(id);
+        sel.innerHTML = columns.map(c => `<option value="${c}">${c}</option>`).join('');
+    });
+    const lower = columns.map(c => c.toLowerCase());
+    const autoMap = [
+        { id: 'mapName', hints: ['name', 'student', 'full'] },
+        { id: 'mapRoll', hints: ['roll', 'reg', 'id', 'number'] },
+        { id: 'mapCollege', hints: ['college', 'institution', 'university', 'school'] },
+        { id: 'mapEmail', hints: ['email', 'mail'] },
+    ];
+    autoMap.forEach(({ id, hints }) => {
+        const idx = lower.findIndex(c => hints.some(h => c.includes(h)));
+        if (idx >= 0) document.getElementById(id).selectedIndex = idx;
+    });
+}
+
+function showPreviewTable(columns, rows) {
+    const sec = document.getElementById('previewSection');
+    const tbl = document.getElementById('previewTable');
+    const cols = document.getElementById('detectedCols');
+    sec.classList.remove('d-none');
+    cols.innerHTML = columns.map(c => `<span class="column-chip">${c}</span>`).join('');
+    tbl.innerHTML = `
+        <thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r => `<tr>${columns.map(c => `<td style="font-size:0.85rem;">${r[c] ?? ''}</td>`).join('')}</tr>`).join('')}</tbody>
+    `;
+}
+
+function saveMapping() {
+    const mapping = {
+        name: document.getElementById('mapName').value,
+        roll: document.getElementById('mapRoll').value,
+        college: document.getElementById('mapCollege').value,
+        email: document.getElementById('mapEmail').value,
+    };
+    const resultEl = document.getElementById('mappingResult');
+    resultEl.innerHTML = '<div class="d-flex align-items-center gap-2"><div class="spinner-border spinner-border-sm text-accent"></div><span class="text-secondary" style="font-size:.85rem">Loading students…</span></div>';
+    resultEl.classList.remove('d-none');
+
+    fetch('/_/save-mapping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapping })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            resultEl.innerHTML = `<div class="alert alert-danger mb-0">${data.error}</div>`;
+            return;
+        }
+        resultEl.classList.add('d-none');
+        const banner = document.getElementById('successBanner');
+        document.getElementById('successText').textContent = `${data.students_loaded} students loaded successfully!`;
+        banner.classList.remove('d-none');
+        banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    })
+    .catch(e => {
+        resultEl.innerHTML = `<div class="alert alert-danger mb-0">Network error: ${e.message}</div>`;
+    });
+}
+</script>
+{% endblock %}

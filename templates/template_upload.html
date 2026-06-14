@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Upload Template{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="section-title">Upload Certificate Template</h1>
+    <p class="section-subtitle">Upload a single-page PDF to use as your certificate base</p>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0 fw-semibold">Select PDF Template</h6>
+            </div>
+            <div class="card-body p-4">
+                <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+                    <i class="bi bi-file-earmark-pdf"></i>
+                    <h6 class="mb-1 mt-2">Drop PDF here or click to browse</h6>
+                    <p class="text-secondary mb-0" style="font-size:0.85rem;">Single-page PDF only</p>
+                </div>
+                <input type="file" id="fileInput" accept=".pdf" class="d-none">
+                <div id="uploadStatus" class="mt-3 d-none">
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="spinner-border spinner-border-sm text-accent"></div>
+                        <span class="text-secondary" style="font-size:0.9rem;">Uploading & rendering preview…</span>
+                    </div>
+                </div>
+                <div id="uploadError" class="mt-3 d-none">
+                    <div class="alert alert-danger mb-0" id="uploadErrorText"></div>
+                </div>
+                <div id="uploadSuccess" class="mt-3 d-none">
+                    <div class="alert alert-success d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-check-circle-fill"></i>
+                        <span class="fw-semibold">Template uploaded successfully</span>
+                    </div>
+                    <a href="/editor" class="btn btn-primary w-100">
+                        Continue to Editor <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <h6 class="mb-0 fw-semibold">Template Preview</h6>
+            </div>
+            <div class="card-body d-flex align-items-center justify-content-center p-4" id="previewContainer">
+                <div class="text-center text-secondary">
+                    <i class="bi bi-image" style="font-size:3rem; opacity:0.3;"></i>
+                    <p class="mt-3 mb-0" style="font-size:0.9rem;">Preview will appear here after upload</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => { if (e.target.files.length) handleFile(e.target.files[0]); });
+
+function handleFile(file) {
+    document.getElementById('uploadStatus').classList.remove('d-none');
+    document.getElementById('uploadError').classList.add('d-none');
+    document.getElementById('uploadSuccess').classList.add('d-none');
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    fetch('/_/upload-template', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('uploadStatus').classList.add('d-none');
+            if (data.error) {
+                document.getElementById('uploadErrorText').textContent = data.error;
+                document.getElementById('uploadError').classList.remove('d-none');
+                return;
+            }
+            dropZone.classList.add('has-file');
+            document.getElementById('uploadSuccess').classList.remove('d-none');
+            document.getElementById('previewContainer').innerHTML = `
+                <img src="data:image/png;base64,${data.preview}" class="preview-cert-img" alt="Certificate preview">
+            `;
+        })
+        .catch(e => {
+            document.getElementById('uploadStatus').classList.add('d-none');
+            document.getElementById('uploadErrorText').textContent = 'Network error: ' + e.message;
+            document.getElementById('uploadError').classList.remove('d-none');
+        });
+}
+</script>
+{% endblock %}

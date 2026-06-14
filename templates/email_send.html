@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Send Emails{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex align-items-center justify-content-between">
+    <div>
+        <h1 class="section-title">Bulk Email Sending</h1>
+        <p class="section-subtitle mb-0">Send personalized certificates to all {{ total }} students</p>
+    </div>
+    <a href="/email-settings" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-gear me-1"></i>Email Settings
+    </a>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-4">
+        <div class="row g-3 mb-3">
+            <div class="col-6">
+                <div class="stat-card text-center">
+                    <div class="stat-number" style="color:var(--success);" id="statSent">{{ sent }}</div>
+                    <div class="stat-label">Sent</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="stat-card text-center">
+                    <div class="stat-number" style="color:var(--danger);" id="statFailed">{{ failed }}</div>
+                    <div class="stat-label">Failed</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="stat-card text-center">
+                    <div class="stat-number" style="color:var(--warning);" id="statPending">{{ pending }}</div>
+                    <div class="stat-label">Pending</div>
+                </div>
+            </div>
+            <div class="col-6">
+                <div class="stat-card text-center">
+                    <div class="stat-number" style="color:var(--accent);" id="statTotal">{{ total }}</div>
+                    <div class="stat-label">Total</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body p-4">
+                {% if not email_settings.sender_email %}
+                <div class="alert alert-warning mb-3" style="font-size:.85rem;">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>
+                    Email not configured. <a href="/email-settings" class="alert-link">Set up SMTP first.</a>
+                </div>
+                {% endif %}
+
+                <div id="controlSend">
+                    <button class="btn btn-primary w-100 mb-2" id="sendBtn" onclick="startSending()"
+                        {% if not email_settings.sender_email or total == 0 %}disabled{% endif %}>
+                        <i class="bi bi-send-fill me-1"></i>Send All Pending ({{ pending }})
+                    </button>
+                    <button class="btn btn-outline-secondary w-100" id="retryBtn" onclick="retryFailed()"
+                        {% if failed == 0 %}disabled{% endif %}>
+                        <i class="bi bi-arrow-clockwise me-1"></i>Retry Failed ({{ failed }})
+                    </button>
+                </div>
+
+                <div id="sendingIndicator" class="d-none">
+                    <div class="mb-3">
+                        <div class="d-flex justify-content-between mb-1" style="font-size:.85rem;">
+                            <span id="sendCurrentName" class="text-secondary">Sending…</span>
+                            <span id="sendCount" class="fw-semibold"></span>
+                        </div>
+                        <div class="progress-bar-custom">
+                            <div class="progress-bar-fill" id="emailProgressFill" style="width:0%;"></div>
+                        </div>
+                    </div>
+                    <div class="text-center text-secondary" style="font-size:.85rem;">
+                        <div class="spinner-border spinner-border-sm me-1"></div>
+                        Sending emails…
+                    </div>
+                </div>
+
+                <div id="sendDoneMsg" class="mt-3 d-none"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h6 class="mb-0 fw-semibold">Student Status</h6>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="filterStudents('all')">All</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="filterStudents('sent')">Sent</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="filterStudents('failed')">Failed</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="filterStudents('pending')">Pending</button>
+                </div>
+            </div>
+            <div class="card-body p-0" style="max-height:520px; overflow-y:auto;">
+                <table class="table table-hover mb-0" id="studentTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Roll</th>
+                            <th>Email</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentTableBody">
+                        <tr><td colspan="4" class="text-center text-secondary py-3">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allStudents = [];
+let currentFilter = 'all';
+let evtSource = null;
+
+function loadStudents() {
+    fetch('/_/students').then(r=>r.json()).then(data => {
+        allStudents = data;
+        renderTable();
+        updateStats();
+    });
+}
+
+function renderTable() {
+    const tbody = document.getElementById('studentTableBody');
+    const filtered = currentFilter === 'all' ? allStudents : allStudents.filter(s => s.email_status === currentFilter);
+    if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="text-center text-secondary py-3">No ${currentFilter} students</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = filtered.map(s => `
+        <tr>
+            <td style="font-size:.875rem;">${s.name}</td>
+            <td style="font-size:.875rem; color:var(--text-secondary);">${s.roll}</td>
+            <td style="font-size:.8rem; color:var(--text-secondary); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.email}</td>
+            <td><span class="badge-status status-${s.email_status}">${s.email_status}</span>
+                ${s.error_msg ? `<span title="${s.error_msg}" class="text-danger ms-1" style="font-size:.75rem; cursor:help;"><i class="bi bi-exclamation-circle"></i></span>` : ''}
+            </td>
+        </tr>
+    `).join('');
+}
+
+function filterStudents(f) {
+    currentFilter = f;
+    renderTable();
+    document.querySelectorAll('.card-header .btn').forEach(b => {
+        b.className = b.textContent.trim().toLowerCase() === f ? 'btn btn-primary btn-sm' : 'btn btn-outline-secondary btn-sm';
+    });
+}
+
+function updateStats() {
+    const sent = allStudents.filter(s=>s.email_status==='sent').length;
+    const failed = allStudents.filter(s=>s.email_status==='failed').length;
+    const pending = allStudents.filter(s=>s.email_status==='pending').length;
+    document.getElementById('statSent').textContent = sent;
+    document.getElementById('statFailed').textContent = failed;
+    document.getElementById('statPending').textContent = pending;
+    document.getElementById('statTotal').textContent = allStudents.length;
+    document.getElementById('retryBtn').disabled = failed === 0;
+}
+
+function startSending() {
+    document.getElementById('controlSend').classList.add('d-none');
+    document.getElementById('sendingIndicator').classList.remove('d-none');
+    document.getElementById('sendDoneMsg').classList.add('d-none');
+
+    fetch('/_/send-emails', { method: 'POST' })
+        .then(r=>r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('controlSend').classList.remove('d-none');
+                document.getElementById('sendingIndicator').classList.add('d-none');
+                alert('Error: ' + data.error);
+                return;
+            }
+            listenEmailProgress();
+        });
+}
+
+function retryFailed() {
+    document.getElementById('controlSend').classList.add('d-none');
+    document.getElementById('sendingIndicator').classList.remove('d-none');
+    document.getElementById('sendDoneMsg').classList.add('d-none');
+
+    fetch('/_/retry-failed', { method: 'POST' })
+        .then(r=>r.json())
+        .then(data => {
+            if (data.error) {
+                document.getElementById('controlSend').classList.remove('d-none');
+                document.getElementById('sendingIndicator').classList.add('d-none');
+                alert(data.error);
+                return;
+            }
+            listenEmailProgress();
+        });
+}
+
+function listenEmailProgress() {
+    if (evtSource) evtSource.close();
+    evtSource = new EventSource('/_/email-progress');
+    evtSource.onmessage = (e) => {
+        const p = JSON.parse(e.data);
+        const tot = p.total || 1;
+        const done = p.sent + p.failed;
+        const pct = Math.round((done / tot) * 100);
+        document.getElementById('emailProgressFill').style.width = pct + '%';
+        document.getElementById('sendCount').textContent = `${done}/${tot}`;
+        if (p.current) document.getElementById('sendCurrentName').textContent = `Sending to: ${p.current}`;
+
+        if (p.done) {
+            evtSource.close();
+            document.getElementById('sendingIndicator').classList.add('d-none');
+            document.getElementById('controlSend').classList.remove('d-none');
+            const doneEl = document.getElementById('sendDoneMsg');
+            const color = p.failed > 0 ? 'warning' : 'success';
+            doneEl.innerHTML = `<div class="alert alert-${color} mb-0">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                Done — <strong>${p.sent}</strong> sent, <strong>${p.failed}</strong> failed
+            </div>`;
+            doneEl.classList.remove('d-none');
+            loadStudents();
+        }
+    };
+    evtSource.onerror = () => {
+        evtSource.close();
+        setTimeout(() => {
+            document.getElementById('sendingIndicator').classList.add('d-none');
+            document.getElementById('controlSend').classList.remove('d-none');
+            loadStudents();
+        }, 2000);
+    };
+
+    setInterval(() => { if (!evtSource || evtSource.readyState === 2) loadStudents(); }, 2000);
+}
+
+loadStudents();
+setInterval(loadStudents, 5000);
+</script>
+{% endblock %}
