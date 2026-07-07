@@ -34,6 +34,8 @@ ALLOWED_PDF = {"pdf"}
 _generate_progress: dict = {}   # session_id -> {total, done_count, done, running}
 _email_progress: dict = {}      # session_id -> {total, sent, failed, current, done, running}
 _progress_lock = threading.Lock()
+# Create DB tables on startup if they don't exist yet
+db.init_db()
 
 
 # ── session helpers ───────────────────────────────────────────────────────────
